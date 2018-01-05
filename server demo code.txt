@@ -1,0 +1,732 @@
+extern WiFiStackInterface wifi;
+extern unsigned int os_time;
+
+#define  SER_MAX_CLIENTS_NUM  4
+#define  SER_RECV_QUEUE_SIZE  4096
+#define  SER_SEND_QUEUE_SIZE  4096
+typedef struct{
+    int index;
+    Socket *socket;     
+	SocketAddress address;	
+    int used;
+	int transmode;//是否透传到串口
+    void* threadid;  
+	//QUEUE ser_recv_queue;	
+}SER_CLIENT_DATA;
+
+static Socket *ser_socket=NULL;
+static unsigned short ser_port=0;
+static unsigned char  ser_protol=0;
+
+static void *listen_threadid=NULL;
+static SER_CLIENT_DATA clients_data[SER_MAX_CLIENTS_NUM];
+
+typedef struct
+{
+  char* cmd;
+  int  maxargs; /* maximum number of arguments */
+  int  (*func)(QUEUE*,int, char *[]);
+
+}SER_CMD_TABLE;
+
+void ser_client_thread(void *argument)
+{    
+	int i,size,index;
+    char recv_buf[RECV_LIMIT+1];
+	
+    index = *(int*)argument;    
+    while(1)
+	{
+		switch(ser_protol)
+		{
+			case 1: //TCP   
+		    case 3://HTTP
+				{
+		            size = ((TCPSocket*)(clients_data[index].socket))->recv((void *)recv_buf, RECV_LIMIT);
+		            //AT_PRINT(0, "ser_client_thread size %d,index=%d\r\n", size,index);
+		            if(size <= 0)
+					{  						
+						clients_data[index].used=0;
+						//QUEUE_Deinit(&clients_data[index].ser_recv_queue);
+		                ((TCPSocket*)(clients_data[index].socket))->close();
+		                delete clients_data[index].socket;	
+						clients_data[index].socket=NULL;	
+						clients_data[index].threadid=NULL;	
+						
+						return;
+						break;
+		            }
+		        }
+				break;
+			case 2://UDP
+		        {		
+					SocketAddress address;	
+					unsigned port;					
+
+					//AT_PRINT(0, "do_client_recv_thread UDP recv start\r\n");
+					size = ((UDPSocket*)ser_socket)->recvfrom(&address, (void *)recv_buf, RECV_LIMIT);
+					//AT_PRINT(0, "do_client_recv_thread UDP recv size=%d,ipaddr=%s,port=%d\r\n",size,address.get_ip_address(),address.get_port());
+
+					//首先找出相同的
+					 for(i=0;i<SER_MAX_CLIENTS_NUM;i++)
+					 {
+					 	  port=clients_data[i].address.get_port();
+						  
+						  if(clients_data[i].used==1&& clients_data[i].address==address &&port==address.get_port())
+						  {						  	 
+							 break;
+						  }
+					 }					
+					
+					 if(i>=SER_MAX_CLIENTS_NUM)
+					  {		
+					      //找出空闲的
+					  	  for(i=0;i<SER_MAX_CLIENTS_NUM;i++)
+						  {
+							  if(clients_data[i].used==0)
+									break;
+						   }
+						   
+						  if(i>=SER_MAX_CLIENTS_NUM)
+					      {	
+						    //QUEUE_Deinit(&clients_data[SER_MAX_CLIENTS_NUM-1].ser_recv_queue);						    	   
+							   
+						    index=SER_MAX_CLIENTS_NUM-1;
+							clients_data[index].used=0;
+						  }
+						  else
+						  {
+						  	index=i;
+						  }
+
+						  clients_data[index].used=1;	
+					  	  clients_data[index].index=index;	
+						  clients_data[index].address=address;					     
+					      //QUEUE_Init(&clients_data[index].ser_recv_queue,1,SER_RECV_QUEUE_SIZE);	
+					  }
+					  else
+					  {
+						   index=i;
+					  }
+
+					 // AT_PRINT(0, "do_client_recv_thread UDP recv index=%d\r\n",index);
+					  
+		        }
+			 	break;
+			case 4://HTTPS
+			default:
+				break;
+		}
+		
+        recv_buf[size] = 0;
+		if(size>0)
+		{ 
+			
+		    if(clients_data[index].transmode)
+		    {
+				AT_RESP_DATA(current_uart_idx,size,recv_buf);		   	
+		    }
+			else
+			{			    
+				AT_RESP(current_uart_idx,"+SDAT:%d,%d,",index,size);
+				AT_RESP_DATA(current_uart_idx,size,recv_buf);	
+				AT_RESP(current_uart_idx,"\r\n");			  
+			}
+		}        
+    }
+}
+
+/*
+void ser_client_thread(void *argument)
+{
+    unsigned int res;
+	int size,i=0,count;
+    char data_buffer[RECV_LIMIT+1];
+	int n,sended_len,packet_len;
+    //index = *(int*)argument;
+	//index = index&0x80000000;
+
+    AT_PRINT(0, "ser_client_thread enters\r\n");
+    while(1)
+	{
+		ser_send_mutex.lock();
+		count=QUEUE_GetCount(&ser_send_queue);
+		ser_send_mutex.unlock();
+		
+		//先接收数据		
+		for(i=0;i<MAX_CLIENTS_NUM;i++)
+		{
+			if(!clients_data[i].used)
+			{
+				continue;
+			}
+			
+			switch(ser_protol)
+			{
+				case 1://TCP
+					{	        	
+					    //AT_PRINT(0, "ser_client_thread recv start\r\n");
+						clients_data[i].socket->set_timeout(1);
+			            size = ((TCPSocket*)(clients_data[i].socket))->recv((void *)data_buffer, RECV_LIMIT);
+						if(size >= 0 || size==NSAPI_ERROR_WOULD_BLOCK)
+						{
+							 if(size==NSAPI_ERROR_WOULD_BLOCK) 
+							 {
+								size=0;
+							 }
+							 else
+							 {
+							   AT_PRINT(0,"ser_client_thread recv i=%d size = %d\r\n", i,size);
+							 }							
+						}
+						else
+						{
+						     AT_PRINT(0,"ser_client_thread recv failed i=%d size = %d\r\n",i,size);
+							 QUEUE_Deinit(&clients_data[i].ser_recv_queue);
+			                 ((TCPSocket*)(clients_data[i].socket))->close();
+			                 delete (TCPSocket*)(clients_data[i].socket);				
+							
+			                 memset(&clients_data[i], 0, sizeof(SER_CLIENT_DATA)); 
+
+							 size=-1;						     	    
+						}			           
+		        	}
+					break;
+			   case 2://UDP
+			   		{
+			 	        size = ((UDPSocket*)(clients_data[i].socket))->recvfrom(&clients_data[i].address, (void *)data_buffer, RECV_LIMIT);
+	        		}
+			   		break;
+			   case 3://HTTP
+			   case 4://HTTPS
+			   default:
+			   		break;
+			}			
+	        
+			if(size>0)
+			{   
+				data_buffer[size] = 0;
+				
+				//AT_PRINT(0, "ser_client_thread 44444\r\n");
+			    if(clients_data[i].transmode)
+			    {
+			    	//AT_PRINT(0, "ser_client_thread 55555\r\n");
+				    if(ser_serial!=NULL)
+				   	{
+				   	 // AT_PRINT(0, "ser_client_thread 66666\r\n");
+				   	  for(i=0;i<size;i++)
+				   	  {
+				   	  	 ser_serial->putc(data_buffer[i]);
+				   	  }
+				   	}
+			    }
+				else
+				{
+				  
+				}
+			}
+
+			if(count>0)
+			{
+				ser_send_mutex.lock();
+				QUEUE_Copys(&ser_send_queue,data_buffer,NULL,count);
+				ser_send_mutex.unlock();
+				switch(ser_protol)
+				{
+				case 1://TCP					
+					{					
+						((TCPSocket*)(clients_data[i].socket))->set_blocking(1);
+					
+						n=0;
+						sended_len=0;
+						while(sended_len<count)
+						{		
+							if((count-sended_len)>MAX_PACKET)
+							{
+								packet_len=MAX_PACKET;
+							}
+							else
+							{
+								packet_len=count-sended_len;
+							}
+							size =((TCPSocket*)(clients_data[i].socket))->send((void*)data_buffer+sended_len, packet_len);	
+							AT_PRINT(0,"ser_client_thread i=%d send size = %d\r\n", i,size);	
+							if(size != packet_len) 
+							{
+								 AT_PRINT(0,"ser_client_thread send failed\r\n");	
+								 //return DD_RESULT_ERR;	
+								 QUEUE_Deinit(&clients_data[i].ser_recv_queue);
+			                 	 ((TCPSocket*)(clients_data[i].socket))->close();
+			                	 delete (TCPSocket*)(clients_data[i].socket);				
+							
+			                	 memset(&clients_data[i], 0, sizeof(SER_CLIENT_DATA)); 
+								 break;
+							}
+							else
+							{
+							  // DD_LOG("dd_socket_send send size = %u\r\n", size);
+							  // DD_DUMP(buf,length);		  
+							  sended_len+=size;
+							}
+						}							
+					}					
+					break;
+				case 2://UDP
+				case 3://HTTP
+				case 4://HTTPS
+				default:
+					break;
+				}				
+			}
+
+			
+		}	
+
+		ser_send_mutex.lock();
+		QUEUE_Gets(&ser_send_queue,data_buffer,NULL,count);
+		ser_send_mutex.unlock();
+
+		//AT_PRINT(0, "do_client_recv_thread 8888888\r\n");
+        
+    }
+}
+*/
+void ser_listen_thread(void *argument)
+{
+  Socket *socket;
+  SocketAddress addr;
+  int index,i,ret;  
+   
+   //AT_PRINT(0, "do_ser_listen_thread enter\r\n");   
+   while(1)
+   {
+        if(ser_socket==NULL)
+        {
+        	AT_PRINT(0, "do_ser_listen_thread ser_socket=NULL exit\r\n");
+			return ;
+        }
+
+		switch(ser_protol)
+		{
+		   case 1:
+		   case 3:
+		   	{
+				//AT_PRINT(0, "do_ser_listen_thread start listen\r\n");
+				ret=((TCPServer*)ser_socket)->listen();
+				if(ret!=0)
+		   		{
+		   		   ((TCPServer*)ser_socket)->close();
+				   delete ser_socket;
+				   ser_socket=NULL;
+				   AT_PRINT(0, "do_ser_listen_thread error exit ret=%d\r\n",ret);
+				   AT_RESP_ERROR(current_uart_idx,ERROR_ABORT);
+				   return;
+		   		}
+
+				//AT_PRINT(0, "do_ser_listen_thread listen ret=%d \r\n",ret);
+		   	}
+			break;
+		   case 2:		   
+		   	break;
+		   case 4:
+		   default:
+		   	break;
+		}	
+   		
+
+		for(i=0;i<SER_MAX_CLIENTS_NUM;i++)
+		{
+		  if(clients_data[i].used==0)
+		  	break;
+		}
+
+		if(i>=SER_MAX_CLIENTS_NUM)
+		{			
+		   clients_data[SER_MAX_CLIENTS_NUM-1].used=0;
+		   if(clients_data[SER_MAX_CLIENTS_NUM-1].threadid!=NULL)
+		   {
+		   		osThreadTerminate((osThreadId)clients_data[SER_MAX_CLIENTS_NUM-1].threadid);	
+				clients_data[SER_MAX_CLIENTS_NUM-1].threadid=NULL;
+		   }
+
+		   //QUEUE_Deinit(&clients_data[SER_MAX_CLIENTS_NUM-1].ser_recv_queue);		
+		   if(clients_data[SER_MAX_CLIENTS_NUM-1].socket!=NULL)
+		   {
+			   clients_data[SER_MAX_CLIENTS_NUM-1].socket->close();			   
+			   delete clients_data[SER_MAX_CLIENTS_NUM-1].socket;	
+			   clients_data[SER_MAX_CLIENTS_NUM-1].socket=NULL; 
+		   }
+		   
+		   index=SER_MAX_CLIENTS_NUM-1;
+		}
+		else
+		{
+		   index=i;
+		}
+
+		switch(ser_protol)
+		{
+		   case 1:
+		   	{
+			   	socket=new TCPSocket();
+				ret=((TCPServer*)ser_socket)->accept((TCPSocket*)socket,&addr);
+				if(ret!=0)
+				{
+		        	AT_PRINT(0, "do_ser_listen_thread accept error exit,ret=%d,ipaddr=%s\r\n",ret,addr.get_ip_address());
+					socket->close();
+					delete socket;					
+					Thread::wait(1000);
+					continue ;
+		        }
+				//AT_PRINT(0, "do_ser_listen_thread accept ret=%d ipaddr=%s\r\n",ret,addr.get_ip_address());
+		   	}
+			break;
+		   case 2:		   
+			break;
+		   case 3:
+		   case 4:
+		   default:
+		   	break;
+		}		
+
+		//AT_PRINT(0, "do_ser_listen_thread 8888888 index=%d \r\n",index);
+		clients_data[index].index=index;
+		clients_data[index].socket=socket;
+		clients_data[index].address=addr;
+		clients_data[index].used=1;		
+		//QUEUE_Init(&clients_data[index].ser_recv_queue,1,SER_RECV_QUEUE_SIZE);	
+		clients_data[index].threadid = rda_thread_new(NULL, ser_client_thread, (void*)&clients_data[index].index, 1024*4, osPriorityNormal);
+		//AT_PRINT(0, "do_ser_listen_thread 99999999999 index=%d\r\n",index);
+   }
+}
+
+//AT+SSTART=<TCP/UDP/HTTP/HTTPS>,<port>
+//AT+SSTART=?
+int do_sstart( cmd_tbl_t *cmd, int argc, char *argv[], unsigned char idx)
+{   
+   unsigned short port,i;  
+   char* protol_string;    
+   
+   if(argc==2&&*argv[1]=='?')
+   	{   	   
+       if(ser_socket!=NULL)
+       { 
+          switch(ser_protol)
+          {
+            case 1:
+				protol_string="TCP";
+				break;
+			case 2:
+				protol_string="UDP";
+				break;
+			case 3:
+				protol_string="HTTP";
+				break;
+			case 4:
+				protol_string="HTTPS";
+				break;
+			default:
+				AT_RESP_ERROR(idx,ERROR_ABORT);
+				return 0;
+          }
+      	  AT_RESP_OK_EQU(idx,"1,%s,%d",protol_string,ser_port);
+       }
+	   else
+	   {
+	      AT_RESP_OK_EQU(idx,"0");
+	   }
+	   
+	   return 0;
+   	}
+
+   if(argc!=3)
+   	{
+   	  AT_RESP_ERROR(idx,ERROR_ARG);
+	  return 0;
+   	}
+
+   if(ser_socket!=NULL)
+   	{
+   	  AT_RESP_ERROR(idx,ERROR_ABORT);
+	  return 0;
+   	}
+   
+   port=atoi(argv[2]);
+   if(stricmp(argv[1],"TCP")==0)
+   {   	  
+	  ser_socket=new TCPServer(&wifi);
+	  if(ser_socket==NULL)
+	  {
+		  AT_RESP_ERROR(idx,ERROR_ABORT);
+		  return 0;
+	  }
+
+	  ser_protol=1;
+   }
+   else  if(stricmp(argv[1],"UDP")==0)
+   {
+   	  ser_socket=new UDPSocket(&wifi);
+	  if(ser_socket==NULL)
+	  {
+		  AT_RESP_ERROR(idx,ERROR_ABORT);
+		  return 0;
+	  }
+   	  ser_protol=2;
+   }
+   else  if(stricmp(argv[1],"HTTP")==0)
+   {
+   	  ser_protol=3;
+   }
+   else  if(stricmp(argv[1],"HTTPS")==0)
+   {
+   	  ser_protol=4;
+   }
+   else
+   {
+   	  AT_RESP_ERROR(idx,ERROR_ARG);
+	  return 0;
+   }
+
+   if(port==0)
+   {
+   	  AT_RESP_ERROR(idx,ERROR_ARG);
+	  return 0;
+   }   
+
+   ser_port=port;
+   
+   ser_socket->bind(ser_port);
+
+   for(i=0;i<SER_MAX_CLIENTS_NUM;i++)
+   {
+   		clients_data[i].used=0;
+		clients_data[i].index=i;
+		clients_data[i].socket=NULL;
+		clients_data[i].threadid=NULL;
+		clients_data[i].transmode=0;		
+   }
+   
+   if(ser_protol==1 || ser_protol==3|| ser_protol==4)
+   	{
+   		listen_threadid=rda_thread_new(NULL, ser_listen_thread,NULL, 1024*4, osPriorityNormal);
+   	}
+   else
+   	{
+   	   listen_threadid=rda_thread_new(NULL, ser_client_thread,NULL, 1024*4, osPriorityNormal);
+   	}
+
+    AT_RESP_OK(idx);
+    return 0;   
+}
+
+//AT+SSTOP
+int do_sstop( cmd_tbl_t *cmd, int argc, char *argv[], unsigned char idx)
+{
+    int index;
+	
+   if(ser_socket==NULL)
+   	{
+   	   AT_RESP_ERROR(idx,ERROR_ABORT);
+	   return 0;
+   	}
+
+   if(argc!=2 && argc!=1)
+   	{
+   	   AT_RESP_ERROR(idx,ERROR_ARG);
+	   return 0;
+   	}
+
+	if(argc==2)
+	{
+	   index=atoi(argv[1]);
+	   if(index>=0 && index<SER_MAX_CLIENTS_NUM)
+	   {
+	   	  if(!clients_data[index].used)
+	   	  {
+   	   		  AT_RESP_ERROR(idx,ERROR_ABORT);
+	   		  return 0;
+   		  }
+
+		  clients_data[index].used=0;
+
+		  if(clients_data[index].threadid!=NULL)
+		  {
+		   	 osThreadTerminate((osThreadId)clients_data[index].threadid);
+			 clients_data[index].threadid=NULL;
+		  }
+
+		  if(clients_data[index].socket!=NULL)
+		  {
+		   	  clients_data[index].socket->close();
+			  delete clients_data[index].socket;
+			  clients_data[index].socket=NULL;
+		  }
+
+		 // QUEUE_Deinit(&clients_data[index].ser_recv_queue); 
+
+		  AT_RESP_OK(idx);
+		  return 0;
+	   }
+	}
+   	
+   if(listen_threadid!=NULL)
+	{
+		osThreadTerminate((osThreadId)listen_threadid);		
+		listen_threadid=NULL;		
+   	}  
+
+	for(int i=0;i<SER_MAX_CLIENTS_NUM;i++)
+	{
+		if(clients_data[i].used)
+		{
+			clients_data[i].used=0;
+			
+		    if(clients_data[i].threadid!=NULL)
+		   	{
+		   		osThreadTerminate((osThreadId)clients_data[i].threadid);
+				clients_data[i].threadid=NULL;
+		   	}
+
+		   if(clients_data[i].socket!=NULL)
+		   {
+		   	  clients_data[i].socket->close();
+			  delete clients_data[i].socket;
+			  clients_data[i].socket=NULL;
+		   }
+
+		   //QUEUE_Deinit(&clients_data[i].ser_recv_queue);             		   
+		}
+	}
+
+	ser_socket->close();
+	delete ser_socket;
+	ser_socket=NULL;
+	ser_port=0;
+	ser_protol=0;
+
+	AT_RESP_OK(idx);
+   
+   return 0;
+}
+
+//AT+SSEND=<linkid>,<length>,<data>,注意linkid为-1，表示所有的连接
+int do_ssend( cmd_tbl_t *cmd, int argc, char *argv[], unsigned char idx)
+{
+    unsigned int total_len, len, tmp_len;
+    unsigned char *buf;
+	int index,size,i;
+
+    if(argc<3){
+        AT_PRINT(idx, "Please set linkid index!\r\n");
+        AT_RESP_ERROR(idx, ERROR_ARG);
+        return 0;
+    }
+
+	if(ser_socket==NULL)
+	{
+        AT_PRINT(idx, "Please start server\r\n");
+        AT_RESP_ERROR(idx, ERROR_ABORT);
+        return 0;
+    }
+
+    index = atoi(argv[1]);
+    total_len = atoi(argv[2]);
+	
+	if(index>=SER_MAX_CLIENTS_NUM)	
+	{
+		AT_PRINT(idx, "Please link index is invalid\r\n");
+		AT_RESP_ERROR(idx, ERROR_ARG);
+		return 0;
+	}
+		
+	if(index>=0)
+	{
+		if(clients_data[index].used != 1)
+		{
+			AT_PRINT(idx, "Socket not in used!\r\n");
+			AT_RESP_ERROR(idx, ERROR_ABORT);
+			return 0;
+		}	
+	}	
+   
+    if(total_len > SEND_LIMIT){
+        AT_PRINT(idx, "Send data len longger than %d!\r\n", SEND_LIMIT);
+        AT_RESP_ERROR(idx, ERROR_ARG);
+    }
+	
+    buf = (unsigned char *)malloc(total_len);
+	if(buf==NULL)
+	{
+        AT_RESP_ERROR(idx, ERROR_FAILE);
+        return 0;
+    }
+	memset(buf,0,total_len);
+    len = 0;
+    console_fifo_get(&buf[0],1,idx);
+    while(len < total_len) {
+        tmp_len = console_fifo_get(&buf[len], total_len-len, idx);
+        len += tmp_len;
+    }
+    
+	if(index>=0)
+	{
+	   switch(ser_protol)
+	   {
+			case 1://TCP					
+				{					
+					do
+					{
+	               		size = ((TCPSocket*)(clients_data[index].socket))->send((void*)buf, total_len);
+	               	}while(size == NSAPI_ERROR_NO_MEMORY);                							
+				}					
+				break;
+			case 2://UDP
+				{
+					size = ((UDPSocket*)ser_socket)->sendto(clients_data[index].address,(void*)buf, total_len);
+				}
+				break;
+			case 3://HTTP
+			case 4://HTTPS
+			default:
+				break;
+		}
+	}
+	else
+	{
+		for(i=0;i<SER_MAX_CLIENTS_NUM;i++)
+		{
+			 if(!clients_data[i].used)
+					continue;
+			 		
+			 switch(ser_protol)
+			 {
+				case 1://TCP					
+					{					
+						do
+						{
+	                   		size = ((TCPSocket*)(clients_data[i].socket))->send((void*)buf, total_len);
+	                   	}while(size == NSAPI_ERROR_NO_MEMORY);                							
+					}					
+					break;
+				case 2://UDP
+					{
+						size = ((UDPSocket*)ser_socket)->sendto(clients_data[i].address,(void*)buf, total_len);
+					}
+					break;
+				case 3://HTTP
+				case 4://HTTPS
+				default:
+					break;
+			}
+		}
+	}
+
+    free(buf);
+    if(size == total_len)
+        AT_RESP_OK(idx);
+    else
+        AT_RESP_ERROR(idx, ERROR_FAILE);
+
+    return 0;
+}
+
