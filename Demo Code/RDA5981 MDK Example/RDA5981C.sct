@@ -1,0 +1,81 @@
+#! armcc -E
+
+;#define RDA_ICACHE_DISABLE
+#define RDA_PARTITION_INDEX   0
+
+#define RDA_ROM_BASE          (0x00000000)
+#define RDA_IRAM_BASE         (0x00100000)
+#define RDA_IRAM_SIZE         (0x00020000)
+#define RDA_DRAM_BASE         (0x00180000)
+#define RDA_DRAM_SIZE         (0x00028000)
+#define RDA_PSRAM_BASE        (0x10000000)
+#define RDA_FLASH_BASE        (0x14000000)
+#define RDA_ICACHE_BASE       (0x18000000)
+#if (0 == RDA_PARTITION_INDEX)
+#define RDA_PADDR_OFST        (0x00001000)
+#elif (1 == RDA_PARTITION_INDEX)
+#define RDA_PADDR_OFST        (0x001F5000)
+#else
+#error "Not supported"
+#endif
+#if defined(RDA_ICACHE_DISABLE)
+#define RDA_CODE_BASE         (RDA_FLASH_BASE + RDA_PADDR_OFST)
+#else  /* RDA_ICACHE_DISABLE */
+#define RDA_CODE_BASE         (RDA_ICACHE_BASE + RDA_PADDR_OFST)
+#endif /* RDA_ICACHE_DISABLE */
+#define RDA_CODE_SIZE         (0x001F4000)
+#define RDA_AHB1_BASE         (0x40100000)
+#define RDA_MEMC_BASE         (RDA_AHB1_BASE + 0x00000)
+
+; max code size: RDA_CODE_SIZE
+LR_IROM0 RDA_CODE_BASE RDA_CODE_SIZE  {               ; load region size_region
+
+  ER_IROM0 RDA_CODE_BASE RDA_CODE_SIZE  {             ; load address = execution address
+   *.o (RESET, +First)
+   ;*(InRoot$$Sections)
+   .ANY (+RO)
+  }
+  ; 8_byte_aligned(31 vect * 4 bytes) =  8_byte_aligned(0x7C) = 0x80
+  ER_IRAMVEC 0x00100000 EMPTY 0x80  
+  {        
+		; Reserved for vectors
+  }
+  
+  RW_IRAM1 0x00100080 0xF780
+  { 
+	;system_RDA5991H.o(+RO)
+    ;mbed_pinmap_common.o(+RO)
+    ;I2S.o(+RO)
+    ;cmsis_nvic.o(+RO)
+	;main.o(+RO)
+   .ANY (+RW +ZI)
+  }
+  
+  ARM_LIB_STACK 0x0010F780 EMPTY (0x800)  
+  {
+  
+  }
+  
+  ARM_MY_DATA0 0x00110000  EMPTY 0x10000
+  {
+  }
+  
+  ARM_MY_DATA1 RDA_DRAM_BASE  EMPTY RDA_DRAM_SIZE  
+  {
+	;main.o(+RO)
+  }
+  
+  RW_IRAM2 RDA_MEMC_BASE EMPTY 0x20000  {             ; RW data, MACLIB_RAM 0x18C00
+	
+	
+   ;.ANY (SECTIONRESERVED1)
+  }
+  
+  
+  ;RW_IRAM3 (RDA_MEMC_BASE + 0x18C00) 0x0C00  {  ; RW data, AES_RAM
+   ;.ANY (AHB1SMEM0)
+  ;}
+  ;RW_IRAM4 (RDA_MEMC_BASE + 0x19800) 0x6800  {  ; RW data, WLAN RAM
+   ;.ANY (AHB1SMEM1)
+  ;}
+}
