@@ -1,0 +1,11 @@
+{
+    "target_overrides": {
+        "UNO_91H": {
+            "target.features_add": ["LWIP", "SDCARD", "GPADCKEY", "CONSOLE", "SMART_CONFIG"],
+	    "target.macros_add": ["BD_FEATURE_NET_STACK_USING_WIFI", "BD_FEATURE_HTTPCLIENT_USING_WIFI"]
+        },
+        "k64f": {
+            "target.features_add": ["LWIP"]
+        }
+    }
+}

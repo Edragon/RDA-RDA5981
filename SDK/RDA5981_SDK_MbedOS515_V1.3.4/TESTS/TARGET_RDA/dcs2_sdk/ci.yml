@@ -1,0 +1,14 @@
+Image:
+    type : default
+BeforeBuild:
+    script :
+Build:
+    script :
+AfterBuild:
+    script :
+Package:
+    script :
+    artifacts:
+        name : application
+        version : $COMMIT_ID-$BUILD_ID
+        files : [./ci.yml] # seperate multiple files by comma

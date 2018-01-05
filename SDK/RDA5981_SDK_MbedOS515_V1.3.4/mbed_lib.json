@@ -1,0 +1,20 @@
+{
+    "name": "core",
+    "config": {
+        "stdio-convert-newlines": {
+            "help": "Enable conversion to standard newlines on stdin/stdout",
+            "value": false
+        },
+
+        "stdio-baud-rate": {
+            "help": "Baud rate for stdio",
+            "value": 9600
+        }
+    },
+    "target_overrides": {
+        "UNO_91H": {
+            "stdio-convert-newlines": true,
+            "stdio-baud-rate": 921600
+        }
+    }
+}

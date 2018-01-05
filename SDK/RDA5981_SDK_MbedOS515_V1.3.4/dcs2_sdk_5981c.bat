@@ -1,0 +1,1 @@
+mbed compile -m UNO_81C -t ARM --source TESTS\TARGET_RDA\dcs2_sdk  --source  ./
