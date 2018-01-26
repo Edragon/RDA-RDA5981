@@ -1,0 +1,8 @@
+U盘热插拔使用步骤如下：
+1. 包含头文件USBMsg.h
+	#include "USBMsg.h"
+2. 使用usb_msgQ_create函数创建main_msgQ
+3. 设置msgqueue为main_msgQ,代码如下：
+	msd.setMsgQueue(main_msgQ);
+4. 在线程中使用usb_msg_get函数接收USB消息，目前支持USB_CONNECT，和USB_DISCONNECT两种消息。
+   可在接收到USB_CONNECT消息时，执行msd.connect()连接U盘,读写U盘等操作。

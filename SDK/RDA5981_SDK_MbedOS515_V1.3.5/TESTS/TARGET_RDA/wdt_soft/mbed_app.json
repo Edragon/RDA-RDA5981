@@ -1,0 +1,7 @@
+{
+    "target_overrides": {
+        "UNO_91H": {
+            "target.features_add": ["CONSOLE"]
+        }
+    }
+}

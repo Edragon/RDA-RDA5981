@@ -1,0 +1,73 @@
+2017-12-23 V1.3.5(477)
+1、修复了V1.3.4中网络相关的bug。
+
+2017-12-14 V1.3.4(459)
+1、大版本更新，编译时不需要再区分U02、U04等版本，target只需要指定为UNO_81A、UNO81AM或者UNO_81C。
+2、优化smartconfig、airkiss、esptouch。
+3、增加在AP模式下，设置最大可连接STA数量的接口，在wland_rda5991h.h中
+rda5981_set_AP_link_num(unsigned char num); num为可连接的最大STA数量。
+增加设置AP白名单列表接口，在在wland_rda5991h.h中
+void rda5981_set_AP_white_list(unsigned char flag, unsigned char *mac)
+flag为1时为将MAC地址增加至列表，flag为0时为将MAC地址从列表删除。
+4、更新文件系统，用户可自行配置FEATURE_SDCARD_EXFAT文字编码，是否支持EXFAT（若不开启EXFAT支持，则为FAT32）等功能，参考ffconf.h的说明。
+5、I2S接口更新，当输入为单声道时，可以设置输入为左声道还是右声道，默认设置为左声道。
+uint8_t rda_i2s_set_rx_mono_channel(i2s_t *obj, uint8_t channel);
+channel为0输入为左声道，channel为1输入为右声道。
+
+2017-11-09 V1.3.3
+1、增加feature ESPTOUCH和相应case。
+2、增加case heap_info，可以查看heap信息。
+3、系统出现fault时增加stack打印。在使用feature CONSOLE时，如果打开宏CONSOLE_DUMP_STACK_EN，在console输入"#*#"，会打印出当前的stack信息。
+4、lwip相关稳定性更新。
+5、在RX测试时，修复了偶尔显示负值的问题。增加了RSSI显示，如下，过去1s的所有包平均RSSI为-77。
+UT: rx = 155, end_gd = 177, end_er = 007, fcs_er = 022, PER = 15.76%, PER_F = 08.37%,rssi=-77
+
+2017-10-18 V1.3.2
+1、修复SD卡热插拔存在的问题。
+2、增加VBAT校准，参考vbat_cal这个case，可获取比较精确的VBAT电压值。
+3、修复其他bugs。
+
+2017-09-19 V1.3.1
+1、修复UART CTS/RTS无法使用问题。
+2、增加低电压检测，参考analog_in这个case，选择ADC_PIN2。
+3、增加g/n模式tx power偏置设置，参考uarthut这个case。
+4、完善i2c功能，参考i2c这个case及其目录下的readme.txt。
+
+2017-09-01 V1.3.0
+1、增加测试模式，参考目录下的“测试模式SDK.7z”里面的文档说明和uarthut这个case。
+2、修复pwm频率不准的问题。
+
+2017-08-21 V1.2.9
+1、增加发射功率、晶体校准的case，详见rf_config这个case，里面给出了配置相关寄存器、flash和efuse的方法。
+2、增加uarthut这个test case，可以通过AT来配置发射功率和晶体校准相关的寄存器、flash和efuse，详见case下的AT说明。
+   目前写efuse和TX/RX测试还未开放。
+
+2017-08-16 V1.2.8
+1、console的输入输出可以选择系统的两个UART任意之一，详见feature FEATURE_CONSOLE_DUAL_UART 与 case dual_console。
+
+2017-08-09 V1.2.7
+1、增加睡眠，详见uartwifi这个test case里面的AT+SLEEP命令。
+2、I2S增加MCLK配置，详见i2s相关case及其目录下的说明文档。
+ 
+2017-07-27 V1.2.6
+1、test case更新，增加tx_power_rf_cal（设置发射功率和RF校准）。
+2、feature更新，提高psram的读写效率。
+
+2017-07-25 V1.2.5
+1、lwip更新，可以同时工作在STA和AP模式。
+2、test case更新，增加soft_reset（软复位）、tcp_upd_speed（TCP、UDP速度测试）和tx_power（设置发射功率）。
+
+2017-07-11 V1.2.4
+1、feature更新，增加FEATURE_USBHOST_MSD与FEATURE_USBDEVICE_MSD两个USB featuer。
+2、test case更新，增加usbhost_msd与usbdevice_msd两个USB case。
+
+2017-06-26 V1.2.3
+1、修复bug。
+
+2017-06-10 V1.2.2
+1、I2S driver更新。
+2、test case更新，增加i2s_master_out、i2s_slave_in、i2s_master_out_slave_in和i2s_master_in共4个I2S测试用例。
+
+2017-06-02 V1.2.1
+1、features更新，增加FEATURE_SDCARD_EXFAT，更新FEATURE_CONSOLE和FEATURE_GPADCKEY。
+2、test case更新，增加airkiss、uartwifi、sdcard_sdmmc_exfat。
