@@ -74,7 +74,7 @@ typedef struct {
     sys_mbox_t wland_mbox;
 } rda_enetdata_t;
 
-__INLINE int mac_is_valid(char* mac)
+static __INLINE int mac_is_valid(char* mac)
 {
     return (mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5]);
 }
